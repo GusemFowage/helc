@@ -1,0 +1,16 @@
+pragma          := function...
+function        := DeclarationSpec Declarator "{" stmt... "}"
+TypeQualifier   := unsigned
+TypeDecl        := int
+DeclarationSpec := (!(TypeQualifier)?)... TypeDecl
+Declarator      := *... identifier ("(" FuncArgs? ")")?
+FuncArgs        := DeclarationSpec Declarator (, DeclarationSpec Declarator)...
+stmt            := (expr)?";"
+                := "if" "(" expr ")" stmt ("else" stmt)?
+                := "while" "(" expr ")" stmt
+                := "do" stmt "while" "("expr")" ";"
+                := "for" "("expr?;expr?;expr?")" stmt
+                := "{" stmt... "}"
+                := "return" expr ";"
+                := DeclarationStmt ";"
+DeclarationStmt := DeclarationSpec Declarator (= expr)? ((, Declarator (= expr)?)?)...
