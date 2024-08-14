@@ -3,14 +3,20 @@ export module parser.ast;
 import <list>;
 import <memory>;
 import <functional>;
+import <set>;
 
 import defint;
+export import hc.types;
 
 using std::shared_ptr;
 
 export namespace hel {
     struct AstTree;
     struct AstVisitor;
+
+    struct LocalDefines {
+        std::set<shared_ptr<MutableValue>> localVars;
+    };
 
     enum class EAst {
         Root,
@@ -33,7 +39,9 @@ export namespace hel {
     template<EAst eAst>
     using AstNode = shared_ptr<Ast<eAst>>;
     template<>
-    struct Ast<EAst::Expr> : Ast<EAst::Root> {};
+    struct Ast<EAst::Expr> : Ast<EAst::Root> {
+
+    };
     template<>
     struct Ast<EAst::Stmt> : Ast<EAst::Root> {};
 
@@ -41,6 +49,7 @@ export namespace hel {
     struct Ast<EAst::Pragma> : public Ast<EAst::Root> {
         void accept(AstVisitor *vis) override;
         std::list<AstNode<EAst::Stmt>> stmts;
+        LocalDefines local_def;
     };
     template<>
     struct Ast<EAst::ExprStmt> : public Ast<EAst::Stmt> {
@@ -60,11 +69,11 @@ export namespace hel {
 
     template<>
     struct Ast<EAst::PriExpr> : public Ast<EAst::Expr> {
-        void accept(AstVisitor *vis) override;
-        enum class PriOperator {
-            Plus,
-        } opt{PriOperator::Plus};
-        AstNode<EAst::Expr> rhs{nullptr};
+        bool lvalue{false};
+//        void accept(AstVisitor *vis) override;
+//        enum class PriOperator {
+//            Plus,
+//        } opt{PriOperator::Plus};
     };
     template<>
     struct Ast<EAst::MidExpr> : public Ast<EAst::PriExpr> {
@@ -72,20 +81,21 @@ export namespace hel {
         enum class MidOperator {
             UKn = 0,        // unknown
             Com,            // comma
-            Add, Sub,
-            Mul, Div, Mod
+            Mul, Div, Mod,  // * / %
+            Add, Sub,       // + -
+            Ass,            // =
         } opt{MidOperator::UKn};
-        AstNode<EAst::Expr> lhs{nullptr};
+        AstNode<EAst::Expr> lhs{nullptr}, rhs{nullptr};
     };
     template<>
-    struct Ast<EAst::ConNumb> : public Ast<EAst::Expr> {
+    struct Ast<EAst::ConNumb> : public Ast<EAst::PriExpr> {
         void accept(AstVisitor *vis) override;
         long double num{};
     };
     template<>
-    struct Ast<EAst::MutVar> : public Ast<EAst::Expr> {
+    struct Ast<EAst::MutVar> : public Ast<EAst::PriExpr> {
         void accept(AstVisitor *vis) override;
-        string_view nm;
+        shared_ptr<MutableValue> varObj;
     };
 
     struct AstTree {
@@ -110,7 +120,7 @@ export namespace hel {
         virtual void visit(Ast<EAst::ConNumb>&) = 0;
         virtual void visit(Ast<EAst::MutVar>&) = 0;
 
-        virtual void visit(Ast<EAst::PriExpr>&) = 0;
+//        virtual void visit(Ast<EAst::PriExpr>&) = 0;
         virtual void visit(Ast<EAst::MidExpr>&) = 0;
 
         virtual void visit(Ast<EAst::ExprStmt>&) = 0;
@@ -126,9 +136,9 @@ export namespace hel {
     void Ast<EAst::MutVar>::accept(AstVisitor *vis) {
         vis->visit(*this);
     }
-    void Ast<EAst::PriExpr>::accept(AstVisitor *vis) {
-        vis->visit(*this);
-    }
+//    void Ast<EAst::PriExpr>::accept(AstVisitor *vis) {
+//        vis->visit(*this);
+//    }
     void Ast<EAst::MidExpr>::accept(AstVisitor *vis) {
         vis->visit(*this);
     }

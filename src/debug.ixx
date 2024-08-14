@@ -1,5 +1,6 @@
 export module debug;
 
+import lexer;
 import parser.ast;
 
 import <iostream>;
@@ -17,11 +18,11 @@ export namespace hel :: deb {
             cout << (num.num);
         }
         void visit(Ast<EAst::MutVar> & var) override {
-            cout << var.nm;
+            cout << var.varObj->ident;
         }
-        void visit(Ast<EAst::PriExpr> & pri) override {
-            pri.rhs->accept(this);
-        }
+//        void visit(Ast<EAst::PriExpr> & pri) override {
+//            pri.lhs->accept(this);
+//        }
         void visit(Ast<EAst::MidExpr> & mid) override {
             using enum Ast<EAst::MidExpr>::MidOperator;
             cout << '(';
@@ -29,17 +30,15 @@ export namespace hel :: deb {
                 mid.lhs->accept(this);
             switch (mid.opt)  {
                 case Add:
-                    cout << '+';
-                    break;
+                    cout << '+'; break;
                 case Sub:
-                    cout << '-';
-                    break;
+                    cout << '-'; break;
                 case Mul:
-                    cout << '*';
-                    break;
+                    cout << '*'; break;
                 case Div:
-                    cout << '/';
-                    break;
+                    cout << '/'; break;
+                case Ass:
+                    cout << '='; break;
                 default:
                     break;
             }
@@ -60,4 +59,30 @@ export namespace hel :: deb {
             }
         }
     };
+
+    void testSource() {
+        cout << boolalpha << detail::is_source_impl < SourceImpl < Source::String >> ::value << endl;
+        cout << boolalpha << detail::is_source_impl < SourceImpl < Source::String >> ::willend << endl;
+        cout << (int) detail::is_source_impl < SourceImpl < Source::String >> ::type << endl;
+    }
+
+    void testLexer() {
+        Lexer lex(new SourceImpl<Source::String>("\n123.456 1. int helloworld \" __ hello world __\" + - * / // hello world\n /*this \n lee*/"));
+        while (lex.PeekToken(0).kind != ETokenKind::Eof) {
+            if (lex.PeekToken(0).kind <= hel::ETokenKind::Rng)
+                cout << get<chr_t>(lex.NextToken().val) << '\n';
+            else if (lex.PeekToken(0).kind == hel::ETokenKind::Num)
+                cout << get<num_t>(lex.NextToken().val) << '\n';
+            else if (lex.PeekToken(0).kind == hel::ETokenKind::Str)
+                cout << get<str_t>(lex.NextToken().val) << '\n';
+            else if (lex.PeekToken(0).kind == hel::ETokenKind::Annotation) {
+                for (auto i: get<doc_t>(lex.PeekToken(0).val))
+                    cout << i;
+                cout << '\n';
+                lex.NextToken();
+            }
+            else
+                cout << (int)lex.PeekToken(0).kind << ": " << get<tag_t>(lex.NextToken().val) << '\n';
+        }
+    }
 }
