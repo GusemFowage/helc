@@ -48,47 +48,82 @@ export namespace hel {
                 if ( kind >= ETokenKind::Flr && kind < ETokenKind::Rng) {
                     msg = std::format(
                         "expect '{}' but now it is '{}';",
-                        char(kind), (lex().cur() == char_info::eof() ? "\\0" : string("")+lex().cur())
+                        char(kind), char_info::to_seen_char(char(cur().kind))
                     );
                 }
 
                 Debugger::interface()->add_msg({
-                       .level=debMsg::Level::Error,
-                       .src_info=cur().addr,
-                       .msg=msg
+                   .level=debMsg::Level::Error,
+                   .src_info=cur().addr,
+                   .msg=msg
                });
             }
         }
-        shared_ptr<MutableValue> FindLocalVar(const string_view& nm) const {
+        shared_ptr<MutableValue> FindLocalVar(const string_view& nm) {
             for (auto& v : local->localVars) {
                 auto&[ident, offset](*v);
                 if (ident == nm) {
                     return v;
                 }
             }
-            return nullptr;
+            return MakeLocalVar(nm);
         }
         shared_ptr<MutableValue> MakeLocalVar(const string_view& nm) {
             auto var = make_shared<MutableValue>();
             var->ident = nm;
             var->offset = {};
-            local->localVars.insert(var);
+            local->localVars.push_back(var);
             return var;
         }
         AstNode<EAst::Pragma> ParsePragma () {
             auto pragma = AstTree::make_node<EAst::Pragma>();
-            local = &(pragma->local_def);
             while (cur().kind != ETokenKind::Eof) {
-                pragma->stmts.push_back(ParseStmt());
+                pragma->funcs.push_back(ParseFunction());
             }
             return pragma;
+        }
+        AstNode<EAst::FuncDef> ParseFunction() {
+            auto fnc = AstTree::make_node<EAst::FuncDef>();
+            local = &fnc->local_def;
+            fnc->nm = cur().get<tag_t>();
+            ExpectToken(ETokenKind::Tag);
+            ExpectToken(ETokenKind('('));
+            if (cur().kind!=ETokenKind(')')) {
+                auto tok = cur();
+                ParsePriExpr();
+                fnc->args.push_back(FindLocalVar(tok.get<tag_t>()));
+                while (cur().kind == ETokenKind(',')) {
+                    lex().NextToken();
+
+                    tok = cur();
+                    ParsePriExpr();
+                    fnc->args.push_back(FindLocalVar(tok.get<tag_t>()));
+                }
+            }
+            ExpectToken(ETokenKind(')'));
+            ExpectToken(ETokenKind('{'));
+            while (cur().kind != ETokenKind('}')) {
+                fnc->stmts.push_back(ParseStmt());
+            }
+            ExpectToken(ETokenKind('}'));
+            return fnc;
         }
         AstNode<EAst::Stmt> ParseStmt() {
             switch (exchange_key()) {
                 case KeyDef::If:
                     return ParseIfStmt();
+                case KeyDef::For:
+                    return ParseForStmt();
+                case KeyDef::Do:
+                    return ParseDoWhileStmt();
+                case KeyDef::While:
+                    return ParseWhileStmt();
+                case KeyDef::Return:
+                    return ParseRetStmt();
                 default:
-                    return ParseExprStmt();
+                    if (cur().kind == ETokenKind('{')) {
+                        return ParseBlock();
+                    } else return ParseExprStmt();
             }
         }
         AstNode<EAst::Expr> ParseExpr() {
@@ -112,14 +147,24 @@ export namespace hel {
                 ExpectToken(ETokenKind(')'));
                 return pri_expr;
             } else if (cur().kind == ETokenKind::Tag) {
+                if (lex().PeekToken(1).kind == ETokenKind('(')) {
+                    auto fnc_call{AstTree::make_node<EAst::Call>()};
+                    fnc_call->nm = cur().get<tag_t>();
+                    ExpectToken(ETokenKind::Tag);
+                    ExpectToken(ETokenKind('('));
+                    if (cur().kind != ETokenKind(')')) {
+                        fnc_call->args.push_back(ParseExpr());
+                        while (cur().kind == ETokenKind(',')){
+                            lex().NextToken();
+                            fnc_call->args.push_back(ParseExpr());
+                        }
+                    }
+                    ExpectToken(ETokenKind(')'));
+                    return fnc_call;
+                }
                 auto var_expr = AstTree::make_node<EAst::MutVar>();
                 auto nm = cur().get<tag_t>();
-                if (auto obj{FindLocalVar(nm)}; !obj) {
-                    obj = MakeLocalVar(nm);
-                    var_expr->varObj = obj;
-                } else {
-                    var_expr->varObj = obj;
-                }
+                var_expr->varObj = FindLocalVar(nm);
                 ExpectToken(ETokenKind::Tag);
                 return var_expr;
             }
@@ -128,16 +173,28 @@ export namespace hel {
         AstNode<EAst::Expr> ParseMidExpr() {
             using MidOperator = Ast<EAst::MidExpr>::MidOperator;
             using enum MidOperator;
+            static Parser* par;
+            par = this;
             struct mid_operator {
                 MidOperator opt;
+                unsigned chr_cnt;
                 [[nodiscard]] unsigned priority() const {
                     // operator priority
                     switch (opt) {
                         case UKn: return 0;
                         case Ass: return 1;
-                        case Add: case Sub: return 2;
-                        case Mul: case Div: return 3;
+                        case Equ: case nEq:
+                        case lEq: case gEq:
+                        case Lss: case Gtr:
+                            return 2;
+                        case Add: case Sub: return 3;
+                        case Mul: case Div: return 4;
                         default:
+                            Debugger::interface()->add_msg({
+                                .level = debMsg::Fail,
+                                .src_info = par->cur().addr,
+                                .msg = std::format("[sorry]: '{}' is not supported;", (int)opt)
+                            });
                             //TODO: [sorry]: '{operator}' is not supported;
                             throw std::runtime_error("[sorry]: '{operator}' is not supported;");
                     }
@@ -147,22 +204,38 @@ export namespace hel {
             std::stack <AstNode<EAst::Expr>> expt;
             std::stack <mid_operator> opts;
             bool is_end = false;
-            auto curOpt = [&]() -> MidOperator {
+            auto curOpt = [&]() -> mid_operator {
                 switch (cur().kind) {
-                case ETokenKind('+'): return Add;
-                case ETokenKind('-'): return Sub;
-                case ETokenKind('*'): return Mul;
-                case ETokenKind('/'): return Div;
-                case ETokenKind('='): return Ass;
-                default: return UKn;
+                case ETokenKind('+'): return mid_operator(Add, 1);
+                case ETokenKind('-'): return mid_operator(Sub, 1);
+                case ETokenKind('*'): return mid_operator(Mul,1);
+                case ETokenKind('/'): return mid_operator(Div,1);
+                case ETokenKind('='): {
+                    if (lex().PeekToken(1).kind == ETokenKind('=')) {
+                        return mid_operator(Equ, 2);
+                    }
+                    return mid_operator(Ass, 1);
+                }
+                case ETokenKind('<'): {
+                    if (lex().PeekToken(1).kind == ETokenKind('=')) {
+                        return mid_operator(lEq, 2);
+                    }
+                    return mid_operator(Lss, 1);
+                }
+                case ETokenKind('>'): {
+                    if (lex().PeekToken(1).kind == ETokenKind('=')) {
+                        return mid_operator(gEq, 2);
+                    }
+                    return mid_operator(Gtr, 1);
+                }
+                case ETokenKind('!'): {
+                    if (lex().PeekToken(1).kind == ETokenKind('=')) {
+                        return mid_operator(nEq, 2);
+                    }
+                }
+                default: return mid_operator(UKn, 0);
                 }
             };
-            auto nextOpt{[&](MidOperator opt) {
-                if (false) {
-                    lex().NextToken();
-                }
-                lex().NextToken();
-            }};
             while (!is_end) {
                 if (auto priExpr{ParsePriExpr()}; priExpr == nullptr) {
                     // cur() is a character
@@ -170,7 +243,6 @@ export namespace hel {
                     if (opt.opt == UKn) {
                         is_end = true;
                         if (opts.empty()) {
-                            mid_expr->rhs = expt.top();
                             break;
                         }
                     }
@@ -188,15 +260,37 @@ export namespace hel {
                         if (is_end) break;
                     } else {
                         opts.emplace(opt);
-                        nextOpt(opt.opt);
+                        auto i = opt.chr_cnt;
+                        while (i--) {
+                            lex().NextToken();
+                        }
                     }
                 } else { expt.push(priExpr); }
             }
+            if (expt.empty()) {
+                Debugger::interface()->add_msg({
+                   .level=debMsg::Level::Fail,
+                   .src_info=cur().addr,
+                   .msg=std::format("here need a expression")
+                });
+                return nullptr;
+            }
             return expt.top();
+        }
+        AstNode<EAst::Block> ParseBlock() {
+            auto blck = AstTree::make_node<EAst::Block>();
+            ExpectToken(ETokenKind('{'));
+            while (cur().kind != ETokenKind::Eof && cur().kind != ETokenKind('}')) {
+                blck->stmts.push_back(ParseStmt());
+            }
+            ExpectToken(ETokenKind('}'));
+            return blck;
         }
         AstNode<EAst::ExprStmt> ParseExprStmt() {
             auto expr_stmt = AstTree::make_node<EAst::ExprStmt>();
-            expr_stmt->expr = ParseExpr();
+            if (cur().kind != ETokenKind(';')) {
+                expr_stmt->expr = ParseExpr();
+            }
             ExpectToken(ETokenKind(';'));
             return expr_stmt;
         }
@@ -204,7 +298,7 @@ export namespace hel {
             auto if_else = AstTree::make_node<EAst::If_Else>();
             lex().NextToken();
             ExpectToken(ETokenKind('('));
-            if_else->condition = ParseExpr();
+            if_else->cond = ParseExpr();
             ExpectToken(ETokenKind(')'));
             if_else->ifS = ParseStmt();
             if (exchange_key() == KeyDef::Else) {
@@ -213,5 +307,48 @@ export namespace hel {
             }
             return if_else;
         }
+        AstNode<EAst::For> ParseForStmt() {
+            auto fr = AstTree::make_node<EAst::For>();
+            lex().NextToken();
+            ExpectToken(ETokenKind('('));
+            if (cur().kind != ETokenKind(';'))
+                fr->init = ParseExpr();
+            ExpectToken(ETokenKind(';'));
+            if (cur().kind != ETokenKind(';'))
+                fr->cond = ParseExpr();
+            ExpectToken(ETokenKind(';'));
+            if (cur().kind != ETokenKind(')'))
+                fr->step = ParseExpr();
+            ExpectToken(ETokenKind(')'));
+            fr->then = ParseStmt();
+            return fr;
+        }
+        AstNode<EAst::While> ParseWhileStmt() {
+            auto whl = AstTree::make_node<EAst::While>();
+            lex().NextToken();
+            ExpectToken(ETokenKind('('));
+            whl->cond = ParseExpr();
+            ExpectToken(ETokenKind(')'));
+            whl->then = ParseStmt();
+            return whl;
+        }
+        AstNode<EAst::Do_While> ParseDoWhileStmt() {
+            auto do_whl = AstTree::make_node<EAst::Do_While>();
+            lex().NextToken();
+            do_whl->then = ParseStmt();
+            ExpectToken(ETokenKind((signed)ETokenKind::Key + (signed)(KeyDef::While)));
+            ExpectToken(ETokenKind('('));
+            do_whl->cond = ParseExpr();
+            ExpectToken(ETokenKind(')'));
+            return do_whl;
+        }
+        AstNode<EAst::Ret> ParseRetStmt() {
+            auto ret = AstTree::make_node<EAst::Ret>();
+            lex().NextToken();
+            ret->expr = ParseExpr();
+            ExpectToken(ETokenKind(';'));
+            return ret;
+        }
+
     };
 }

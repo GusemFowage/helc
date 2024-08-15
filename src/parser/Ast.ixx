@@ -4,6 +4,7 @@ import <list>;
 import <memory>;
 import <functional>;
 import <set>;
+import <unordered_set>;
 
 import defint;
 export import hc.types;
@@ -15,17 +16,21 @@ export namespace hel {
     struct AstVisitor;
 
     struct LocalDefines {
-        std::set<shared_ptr<MutableValue>> localVars;
+        std::list<shared_ptr<MutableValue>> localVars;
     };
 
     enum class EAst {
         Root,
         Pragma,
         Expr, Stmt,
+        FuncDef,
+        Block,
         ExprStmt,
-        If_Else, While,
+        If_Else, For,
+        While, Do_While,
         ConNumb, MutVar,
         PriExpr, MidExpr,
+        Call, Ret,
     };
 
     template<EAst eA = EAst::Root>
@@ -39,17 +44,27 @@ export namespace hel {
     template<EAst eAst>
     using AstNode = shared_ptr<Ast<eAst>>;
     template<>
-    struct Ast<EAst::Expr> : Ast<EAst::Root> {
-
-    };
+    struct Ast<EAst::Expr> : Ast<EAst::Root> {};
     template<>
     struct Ast<EAst::Stmt> : Ast<EAst::Root> {};
 
     template<>
     struct Ast<EAst::Pragma> : public Ast<EAst::Root> {
         void accept(AstVisitor *vis) override;
-        std::list<AstNode<EAst::Stmt>> stmts;
+        std::list<AstNode<EAst::Root>> funcs;
+    };
+    template<>
+    struct Ast<EAst::FuncDef> : public Ast<EAst::Expr> {
+        void accept(hel::AstVisitor *vis) override;
+        string_view nm;
+        std::list<shared_ptr<MutableValue>> args;
         LocalDefines local_def;
+        std::list<AstNode<EAst::Stmt>> stmts;
+    };
+    template<>
+    struct Ast<EAst::Block> : public Ast<EAst::Stmt> {
+        void accept(AstVisitor *vis) override;
+        std::list<AstNode<EAst::Stmt>> stmts;
     };
     template<>
     struct Ast<EAst::ExprStmt> : public Ast<EAst::Stmt> {
@@ -59,14 +74,30 @@ export namespace hel {
     template<>
     struct Ast<EAst::If_Else> : public Ast<EAst::Stmt> {
         void accept(AstVisitor *vis) override;
-        AstNode<EAst::Expr> condition;
+        AstNode<EAst::Expr> cond;
         AstNode<EAst::Stmt> ifS, elseS;
     };
     template<>
     struct Ast<EAst::While> : public Ast<EAst::Stmt> {
-
+        void accept(hel::AstVisitor *vis) override;
+        AstNode<EAst::Expr> cond;
+        AstNode<EAst::Stmt> then;
     };
-
+    template<>
+    struct Ast<EAst::Do_While> : public Ast<EAst::While> {
+        void accept(hel::AstVisitor *vis) override;
+    };
+    template<>
+    struct Ast<EAst::For> : public Ast<EAst::While> {
+        void accept(hel::AstVisitor *vis) override;
+        AstNode<EAst::Expr> init{nullptr}, step{nullptr};
+        AstNode<EAst::Stmt> then;
+    };
+    template<>
+    struct Ast<EAst::Ret> : public Ast<EAst::Stmt> {
+        void accept(hel::AstVisitor *vis) override;
+        AstNode<EAst::Expr> expr;
+    };
     template<>
     struct Ast<EAst::PriExpr> : public Ast<EAst::Expr> {
         bool lvalue{false};
@@ -80,10 +111,13 @@ export namespace hel {
         void accept(AstVisitor *vis) override;
         enum class MidOperator {
             UKn = 0,        // unknown
-            Com,            // comma
+            Com,            // ,
             Mul, Div, Mod,  // * / %
             Add, Sub,       // + -
             Ass,            // =
+            Equ, nEq,       // == !=
+            Lss, Gtr,       // < >
+            lEq, gEq,       // <= >=
         } opt{MidOperator::UKn};
         AstNode<EAst::Expr> lhs{nullptr}, rhs{nullptr};
     };
@@ -96,6 +130,12 @@ export namespace hel {
     struct Ast<EAst::MutVar> : public Ast<EAst::PriExpr> {
         void accept(AstVisitor *vis) override;
         shared_ptr<MutableValue> varObj;
+    };
+    template<>
+    struct Ast<EAst::Call> : public Ast<EAst::PriExpr> {
+        void accept(hel::AstVisitor *vis) override;
+        string_view nm;
+        std::list<AstNode<EAst::Expr>> args;
     };
 
     struct AstTree {
@@ -116,18 +156,26 @@ export namespace hel {
     struct AstVisitor {
 //        virtual void visit(AstNode<EAst::Root>&) = 0;
         virtual void visit(Ast<EAst::Pragma>&) = 0;
+        virtual void visit(Ast<EAst::FuncDef>&) = 0;
 
         virtual void visit(Ast<EAst::ConNumb>&) = 0;
         virtual void visit(Ast<EAst::MutVar>&) = 0;
-
-//        virtual void visit(Ast<EAst::PriExpr>&) = 0;
         virtual void visit(Ast<EAst::MidExpr>&) = 0;
+        virtual void visit(Ast<EAst::Call>&) = 0;
 
+        virtual void visit(Ast<EAst::Block>&) = 0;
         virtual void visit(Ast<EAst::ExprStmt>&) = 0;
         virtual void visit(Ast<EAst::If_Else>&) = 0;
+        virtual void visit(Ast<EAst::For>&) = 0;
+        virtual void visit(Ast<EAst::While>&) = 0;
+        virtual void visit(Ast<EAst::Do_While>&) = 0;
+        virtual void visit(Ast<EAst::Ret>&) = 0;
     };
 
     void Ast<EAst::Pragma>::accept(AstVisitor *vis) {
+        vis->visit(*this);
+    }
+    void Ast<EAst::FuncDef>::accept(hel::AstVisitor *vis) {
         vis->visit(*this);
     }
     void Ast<EAst::ConNumb>::accept(AstVisitor *vis) {
@@ -142,10 +190,28 @@ export namespace hel {
     void Ast<EAst::MidExpr>::accept(AstVisitor *vis) {
         vis->visit(*this);
     }
+    void Ast<EAst::Call>::accept(AstVisitor *vis) {
+        vis->visit(*this);
+    }
+    void Ast<EAst::Block>::accept(AstVisitor *vis) {
+        vis->visit(*this);
+    }
     void Ast<EAst::ExprStmt>::accept(AstVisitor *vis) {
         vis->visit(*this);
     }
     void Ast<EAst::If_Else>::accept(AstVisitor *vis) {
+        vis->visit(*this);
+    }
+    void Ast<EAst::For>::accept(hel::AstVisitor *vis) {
+        vis->visit(*this);
+    }
+    void Ast<EAst::While>::accept(hel::AstVisitor *vis) {
+        vis->visit(*this);
+    }
+    void Ast<EAst::Do_While>::accept(hel::AstVisitor *vis) {
+        vis->visit(*this);
+    }
+    void Ast<EAst::Ret>::accept(hel::AstVisitor *vis) {
         vis->visit(*this);
     }
 }

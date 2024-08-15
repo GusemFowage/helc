@@ -34,15 +34,15 @@ struct ::std::formatter<hel::debMsg::Level, hel::char_info::char_type> {
         string_view lvl_str;
         switch (lvl) {
             case hel::debMsg::Note:
-                lvl_str = "Note"; break;
+                lvl_str = "\033[0mNote\033[0m"; break;
             case hel::debMsg::Info:
-                lvl_str = "Info"; break;
+                lvl_str = "\033[32mInfo\033[0m"; break;
             case hel::debMsg::Warn:
-                lvl_str = "Warn"; break;
+                lvl_str = "\033[33mWarn\033[0m"; break;
             case hel::debMsg::Error:
-                lvl_str = "Error"; break;
+                lvl_str = "\033[31mError\033[0m"; break;
             case hel::debMsg::Fail:
-                lvl_str = "Fail"; break;
+                lvl_str = "\033[1m\033[31mFail\033[0m"; break;
         }
         return std::format_to(formatContext.out(), "[{}]", lvl_str);
     }
@@ -51,10 +51,10 @@ struct ::std::formatter<hel::debMsg::Level, hel::char_info::char_type> {
 export namespace hel {
     class Debugger {
         std::queue <debMsg> msgs;
+        void use();
     public:
         Debugger();
         ~Debugger();
-        void use();
         void add_msg(const debMsg &msg) {
             msgs.push(msg);
         }
@@ -62,8 +62,19 @@ export namespace hel {
         void put_all() {
             while (!msgs.empty()) {
                 auto &front = msgs.front();
-                std::cout << front.src_info.code << '\n';
-                std::println(std::cout, "{1:~>{0}}{2}: {3}", front.src_info.column, '^', front.level, front.msg);
+                std::println(std::cout,
+                "{}\033[32m[file: {}][line: {}][column: {}]\033[0m",
+                front.level,
+                front.src_info.file,
+                front.src_info.line,
+                front.src_info.column
+                );
+                std::println(std::cout, "{}", front.src_info.code);
+                std::println(std::cout, "{1:~>{0}} {2}",
+                front.src_info.column,
+                '^',
+                front.msg
+                );
                 msgs.pop();
             }
         }

@@ -2,6 +2,9 @@ export module lexer.source;
 
 import <string>;
 import <limits>;
+import <filesystem>;
+import <list>;
+import <fstream>;
 
 export import defint;
 
@@ -17,6 +20,7 @@ export namespace hel {
         struct Info {
             size_t line, column;
             string_view code;
+            string file;
         };
         NODISCARD virtual bool had_end() const = 0;
         virtual char_t NextChar() = 0;
@@ -54,10 +58,70 @@ export namespace hel {
             return code.at(index+pos);
         }
     };
-
     template<>
-    class SourceImpl<Source::File> : public Source {
+    class SourceImpl<Source::File> : public Source{
+        std::list<string> code;
+        decltype(code)::iterator curL;
+        string::iterator curC;
+        std::filesystem::path SrcPath;
+    public:
+        explicit SourceImpl(const decltype(SrcPath)& src) : SrcPath(src) {
+            mCurLineInfo.file = SrcPath.string<char_t>();
+            std::ifstream fin;
+            fin.open(SrcPath);
+            string buff;
+            code.push_back("//"+SrcPath.string());
+            while (std::getline(fin, buff)) {
+                code.push_back(buff);
+            }
+            fin.close();
 
+            curL = code.begin();
+            curC = curL->begin();
+            mCurLineInfo.line = {};
+            mCurLineInfo.column = {};
+            mCurLineInfo.code = *curL;
+        }
+        bool had_end() const override{
+            return (curL==code.end());
+        }
+        char_t NextChar() override{
+            if (had_end()) return char_info::eof();
+            if (curC == curL->end()) {
+                curL ++;
+                mCurLineInfo.line++;
+                if (curL == code.end()) {
+                    return '\n';
+                }
+                curC = curL->begin();
+                mCurLineInfo.column = 0;
+                mCurLineInfo.code=*curL;
+                return '\n';
+            }
+            mCurLineInfo.column++;
+            return (*curC++);
+        }
+        char_t PeekChar(hel::pos_t pos) override{
+            if (had_end()) return char_info::eof();
+            if (curC != curL->end() && pos == 0) return *curC;
+            auto tmpLn = curL;
+            auto tmpCh = curC;
+            decltype(pos) tmp;
+            while ((tmp = (tmpLn->end() - tmpCh)) <= pos) {
+                pos -= tmp;
+                if (pos==0) {
+                    return '\n';
+                }
+                tmpLn++;
+                if (tmpLn == code.end()) {
+                    return char_info::eof();
+                }
+                tmpCh = tmpLn->begin();
+                pos--;
+            }
+            tmpCh += pos;
+            return *tmpCh;
+        }
     };
     template<>
     class SourceImpl<Source::Inline> : public Source {

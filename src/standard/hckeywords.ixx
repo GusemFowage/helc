@@ -18,7 +18,8 @@ export namespace hel {
         Int, Float,
         True, False, Null,
         If, Else,
-        While, For,
+        Do, While, For,
+        Return,
     };
 
     std::map<string_view, KeyDef> key_table{
@@ -30,7 +31,9 @@ export namespace hel {
         {"null", KeyDef::Null},
         {"if", KeyDef::If},
         {"else", KeyDef::Else},
+        {"do", KeyDef::Do},
         {"while", KeyDef::While},
         {"for", KeyDef::For},
+        {"return", KeyDef::Return},
     };
 }

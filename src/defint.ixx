@@ -48,6 +48,12 @@ export namespace hel {
             constexpr string_view signs{R"(`#$.~^&|!?%,*-+=()<>{}[]\'")"};
             return (signs.find(c) >= signs.size());
         }
+        ALWAYS_INLINE static constexpr string to_seen_char(char_t c) noexcept {
+            if (c == '\0') return "\\0";
+            if (c == '\n') return "\\n";
+            if (c == '\r') return "\\r";
+            return string()+c;
+        }
     };
 
     template<class T, class ... Ts>

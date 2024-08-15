@@ -20,7 +20,7 @@ struct token_types {
     using variant = std::variant<Ts...>;
 };
 constexpr token_types TokenInfoImpl(
-    hel::make_unique_typelist<bool, chr_t, num_t, str_t, tag_t, doc_t >{}
+    hel::make_unique_typelist<bool, chr_t, num_t, str_t, tag_t/*, doc_t*/>{}
 );
 using token_info = decltype(TokenInfoImpl);
 
@@ -90,9 +90,18 @@ export namespace hel{
         }
     private:
         void SkipWhite() {
-            if (char_info::is_space(cur())) {
-                src->NextChar();
+            while (char_info::is_space(cur()) || cur() == '/') {
+                if (cur() == '/') {
+                    if (auto pc{src->PeekChar(1)};pc=='/' || pc=='*') {
+                        src->NextChar();
+//                    ret.kind = ETokenKind::Annotation;
+//                    ret.val.emplace<doc_t>(LexDocs());
+                        LexDocs();
+                    } else return;
+                } else
+                    src->NextChar();
             }
+
         }
         Token GainToken() {
             SkipWhite();
@@ -117,13 +126,6 @@ export namespace hel{
                 case char_info::eof():
                     ret.kind = ETokenKind::Eof;
                     break;
-                case '/':
-                    if (auto pc{src->PeekChar(1)};pc=='/' || pc=='*') {
-                        src->NextChar();
-                        ret.kind = ETokenKind::Annotation;
-                        ret.val.emplace<doc_t>(LexDocs());
-                        break;
-                    }
                 default:
                     auto& c = ret.val.emplace<chr_t>(cur());
                     ret.kind = ETokenKind(c);
@@ -155,36 +157,37 @@ export namespace hel{
             } while (tokenRequires<kind>(cur(), r));
             return src->cur_line().code.substr(l, r);
         }
-        doc_t LexDocs() {
-            doc_t retDocs;
+        void LexDocs() {
+            // TODO: doc_t
+//            doc_t retDocs;
             auto c = src->NextChar();
-            auto left{src->cur_line().column};
-            decltype(left) right{};
+//            auto left{src->cur_line().column};
+//            decltype(left) right{};
             if (c == '/') {
                 // single-line annotation
-                while (c != '\n') {
-                    right++;
+                while (c != char_info::eof() &&c != '\n') {
+//                    right++;
                     c = src->NextChar();
                 }
-                retDocs.push_back(src->cur_line().code.substr(left, right));
+//                retDocs.push_back(src->cur_line().code.substr(left, right));
             } else {
                 // lines annotation
                 while (true) {
                     if (c == '\n') {
-                        retDocs.push_back(src->cur_line().code.substr(left, right));
+//                        retDocs.push_back(src->cur_line().code.substr(left, right));
                         c = src->NextChar();
-                        left = src->cur_line().column, right = {};
+//                        left = src->cur_line().column, right = {};
                         continue;
                     } else if (cur() == '*' && src->PeekChar(1) == '/') {
-                        retDocs.push_back(src->cur_line().code.substr(left, right));
+//                        retDocs.push_back(src->cur_line().code.substr(left, right));
                         break;
                     }
-                    right++;
+//                    right++;
                     c = src->NextChar();
                 }
                 src->NextChar(); src->NextChar();
             }
-            return retDocs;
+//            return retDocs;
         }
     };
 
