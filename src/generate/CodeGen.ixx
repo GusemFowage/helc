@@ -12,19 +12,19 @@ import <array>;
 
 export namespace hel {
     class CodeGen : public AstVisitor{
-        mutable std::reference_wrapper<std::ostream> mOutput;
+        std::reference_wrapper<std::ostream> mOutput;
         size_t stackLevel{};
         bool use_var {true};
         unsigned Sequence{};
         string_view FuncNm;
 
         inline static const char* Reg64[6] = {
-                "%rdi", "%rsi", "%rdx",
-                "%rcx", "%r8", "%r9"
+            "%rdi", "%rsi", "%rdx",
+            "%rcx", "%r8", "%r9"
         };
 
     public:
-        std::ostream& out() const { return mOutput.get(); }
+        std::ostream& out() { return mOutput.get(); }
         explicit CodeGen(std::ostream & iOstream)
                 : mOutput(iOstream) {}
         template <class ... Args>
