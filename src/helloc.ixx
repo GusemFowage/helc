@@ -14,13 +14,25 @@ import <fstream>;
 using namespace std;
 using namespace hel;
 
-// 编译器真正的入口函数
+// the real entry function
 export int hello(const unordered_multiset<string_view>& parameter) {
 //    deb::testLexer();
 //     a_=4+10*(10-2)/5; a_; 4 + 16 = 20
-//    Lexer lex(new SourceImpl<Source::String>("a_ = (4+10*(10-2)/5) ; if() {a_ = 100;} else {a_ = a_ + 20;} a_ <= 40;"));
-    Debugger symbol_deb("../../test.c");    // just for test.
-    Lexer lex(new SourceImpl<Source::File>("../../test.c"));
+//    Lexer lex(new SourceImpl<Source::String>("    \
+//      a_ = (4+10*(10-2)/5);                       \
+//      if() {a_ = 100;}                            \
+//      else {a_ = a_ + 20;}                        \
+//      a_ <= 40;                                   \
+//      "));
+    std::filesystem::path src = "test.c";
+    for (auto& i : parameter) {
+        auto p{std::filesystem::path(i)};
+        if ( p.extension() == ".c") {
+            src = p;
+        }
+    }
+    Debugger symbol_deb(src);
+    Lexer lex(new SourceImpl<Source::File>(src));
     Parser parser(lex);
     auto tree = parser.get_tree();
     if (symbol_deb.put_all()) {
@@ -28,7 +40,8 @@ export int hello(const unordered_multiset<string_view>& parameter) {
     }
 //    deb::Check check;
 //    tree.visit(check);
-    if (auto f{parameter.find("-o")}; (++f) != parameter.end()) {
+    if (auto f{parameter.find("-o")};
+        (++f) != parameter.end()) {
         auto pth{(std::filesystem::path(*f))};
         if (pth.extension() != ".s" ) {
             return -1;

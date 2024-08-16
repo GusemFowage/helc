@@ -5,6 +5,10 @@ set(CMAKE_CXX_STANDARD 26)
 
 set(SOURCE_MODULE hello_module)
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/../app")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/../app")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/../app")
+
 include_directories(./src)
 
 file(GLOB_RECURSE SRC_IXX "src/*.ixx")
