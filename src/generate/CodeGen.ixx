@@ -14,7 +14,6 @@ export namespace hel {
     class CodeGen : public AstVisitor{
         std::reference_wrapper<std::ostream> mOutput;
         size_t stackLevel{};
-        bool use_var {true};
         unsigned Sequence{};
         string_view FuncNm;
 
@@ -78,20 +77,39 @@ export namespace hel {
             genln("\tmov ${}, %rax", num.num);
         }
         void visit(Ast<EAst::MutVar> & var) override {
-//            if (var.varObj->offset == 16) {
-//                genln("\tlea -{}(%rbp), %rax", var.varObj->offset);
-//                if (use_var) genln("\tmov (%rax), %rax");
-//                return;
-//            }
             genln("\tlea -{}(%rbp), %rax", var.varObj->offset);
-            if (use_var) genln("\tmov (%rax), %rax");
+            genln("\tmov (%rax), %rax");
+        }
+        void visit(Ast<EAst::UnaryExpr> & unry) override {
+            using enum Ast<EAst::UnaryExpr>::UnaryOperator;
+            switch (unry.opt) {
+                case Plus: {
+                    unry.expr->accept(this);
+                    break;
+                }
+                case Minus: {
+                    unry.expr->accept(this);
+                    genln("\tneg %rax");
+                    break;
+                }
+                case Fetch: {
+                    GenAddr(&unry);
+                    genln("\tmov (%rax), %rax");
+                    break;
+                }
+                case GetAddr: {
+                    GenAddr(unry.expr.get());
+                    break;
+                }
+                default: {
+                    break;
+                }
+            }
         }
         void visit(Ast<EAst::MidExpr> & mid) override {
             using enum Ast<EAst::MidExpr>::MidOperator;
             if (mid.opt == Ass) {
-                use_var = false;
-                mid.lhs->accept(this);
-                use_var = true;
+                GenAddr(mid.lhs.get());
                 Push();
                 mid.rhs->accept(this);
                 Pop("%rdi");
@@ -248,6 +266,21 @@ export namespace hel {
         void Pop(const char* reg) {
             genln("\tpop {}", reg);
             stackLevel--;
+        }
+        void GenAddr(Ast<EAst::Expr>* n) {
+            if (auto var{dynamic_cast<Ast<EAst::MutVar>*>(n)}) {
+                genln("\tlea -{}(%rbp), %rax", var->varObj->offset);
+                return;
+            } else if (auto unary{dynamic_cast<Ast<EAst::UnaryExpr>*>(n)}) {
+                if (unary->opt == Ast<EAst::UnaryExpr>::UnaryOperator::Fetch) {
+                    unary->expr->accept(this);
+                    return;
+                } else {
+                    //TODO: unknown if is lvalue;
+                }
+            }
+            // TODO: [error]: can't get the address of a variable isn't lvalue
+            throw std::runtime_error("[error]: can't get the address of a variable isn't lvalue");
         }
 //        template<unsigned >
         static unsigned AlignTo(unsigned sz, unsigned al) {

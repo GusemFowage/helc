@@ -20,16 +20,13 @@ export namespace hel {
     };
 
     enum class EAst {
-        Root,
-        Pragma,
+        Root, Pragma,
         Expr, Stmt,
-        FuncDef,
-        Block, Decl,
-        ExprStmt,
-        If_Else, For,
-        While, Do_While,
+        FuncDef, Block, Decl,
+        ExprStmt, If_Else,
+        For, While, Do_While,
         ConNumb, MutVar,
-        PriExpr, MidExpr,
+        PriExpr, MidExpr, UnaryExpr,
         Call, Ret, StmtExpr
     };
 
@@ -102,10 +99,16 @@ export namespace hel {
     template<>
     struct Ast<EAst::PriExpr> : public Ast<EAst::Expr> {
         bool lvalue{false};
-//        void accept(AstVisitor *vis) override;
-//        enum class PriOperator {
-//            Plus,
-//        } opt{PriOperator::Plus};
+
+    };
+    template<>
+    struct Ast<EAst::UnaryExpr> : public Ast<EAst::PriExpr>{
+        void accept(AstVisitor *vis) override;
+        enum class UnaryOperator {
+            Ukn,
+            Plus, Minus, Fetch, GetAddr
+        } opt{UnaryOperator::Ukn};
+        AstNode<EAst::Expr> expr;
     };
     template<>
     struct Ast<EAst::MidExpr> : public Ast<EAst::PriExpr> {
@@ -174,6 +177,7 @@ export namespace hel {
 
         virtual void visit(Ast<EAst::ConNumb>&) = 0;
         virtual void visit(Ast<EAst::MutVar>&) = 0;
+        virtual void visit(Ast<EAst::UnaryExpr>&) = 0;
         virtual void visit(Ast<EAst::MidExpr>&) = 0;
         virtual void visit(Ast<EAst::Call>&) = 0;
         virtual void visit(Ast<EAst::StmtExpr>&) = 0;
@@ -200,9 +204,9 @@ export namespace hel {
     void Ast<EAst::MutVar>::accept(AstVisitor *vis) {
         vis->visit(*this);
     }
-//    void Ast<EAst::PriExpr>::accept(AstVisitor *vis) {
-//        vis->visit(*this);
-//    }
+    void Ast<EAst::UnaryExpr>::accept(AstVisitor *vis) {
+        vis->visit(*this);
+    }
     void Ast<EAst::MidExpr>::accept(AstVisitor *vis) {
         vis->visit(*this);
     }

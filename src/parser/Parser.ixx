@@ -239,7 +239,8 @@ export namespace hel {
 //            auto pri_expr{AstTree::make_node<EAst::PriExpr>()};
             if (cur().kind == ETokenKind::Num) {
                 return ParseConNumb();
-            } else if (cur().kind == ETokenKind('(')) {
+            }
+            else if (cur().kind == ETokenKind('(')) {
                 if (lex().PeekToken(1).kind == ETokenKind('{')) {
                     ExpectToken(ETokenKind('('));
                     ExpectToken(ETokenKind('{'));
@@ -255,7 +256,8 @@ export namespace hel {
                 auto pri_expr = ParseExpr();
                 ExpectToken(ETokenKind(')'));
                 return pri_expr;
-            } else if (cur().kind == ETokenKind::Tag) {
+            }
+            else if (cur().kind == ETokenKind::Tag) {
                 if (lex().PeekToken(1).kind == ETokenKind('(')) {
                     auto fnc_call{AstTree::make_node<EAst::Call>()};
                     fnc_call->nm = cur().get<tag_t>();
@@ -286,7 +288,35 @@ export namespace hel {
                 ExpectToken(ETokenKind::Tag);
                 return var_expr;
             }
-            return nullptr;
+            else return nullptr;
+        }
+        AstNode<EAst::Expr> ParseUnaryExpr() {
+            using UnaryOperator = Ast<EAst::UnaryExpr>::UnaryOperator;
+            using enum UnaryOperator;
+            auto unry{AstTree::make_node<EAst::UnaryExpr>()};
+            switch (cur().kind) {
+            case ETokenKind('+'): {
+                unry->opt = Plus;
+                break;
+            }
+            case ETokenKind('-'): {
+                unry->opt = Minus;
+                break;
+            }
+            case ETokenKind('*'): {
+                unry->opt = Fetch;
+                break;
+            }
+            case ETokenKind('&'): {
+                unry->opt = GetAddr;
+                break;
+            }
+            default:
+                return ParsePriExpr();
+            }
+            lex().NextToken();
+            unry->expr = ParseUnaryExpr();
+            return unry;
         }
         AstNode<EAst::Expr> ParseMidExpr() {
             using MidOperator = Ast<EAst::MidExpr>::MidOperator;
@@ -355,7 +385,7 @@ export namespace hel {
                 }
             };
             while (!is_end) {
-                if (auto priExpr{ParsePriExpr()}; priExpr == nullptr) {
+                if (auto unary{ParseUnaryExpr()}; unary == nullptr) {
                     // cur() is a character
                     auto opt{mid_operator(curOpt())};
                     if (opt.opt == UKn) {
@@ -383,7 +413,7 @@ export namespace hel {
                             lex().NextToken();
                         }
                     }
-                } else { expt.push(priExpr); }
+                } else { expt.push(unary); }
             }
             if (expt.empty()) {
                 Debugger::interface()->add_msg({
