@@ -8,6 +8,7 @@ import <stack>;
 import lexer;
 import parser.ast;
 import symbol.debugger;
+import hc.types;
 
 #include "attrdef.hxx"
 
@@ -61,20 +62,92 @@ export namespace hel {
         }
         shared_ptr<MutableValue> FindLocalVar(const string_view& nm) {
             for (auto& v : local->localVars) {
-                auto&[ident, offset](*v);
+                auto&[ty, ident, offset](*v);
                 if (ident == nm) {
                     return v;
                 }
             }
-            return MakeLocalVar(nm);
+            return nullptr;
         }
-        shared_ptr<MutableValue> MakeLocalVar(const string_view& nm) {
+        shared_ptr<MutableValue> MakeLocalVar(const string_view& nm, std::shared_ptr<Type> ty) {
             auto var = make_shared<MutableValue>();
             var->ident = nm;
             var->offset = {};
             local->localVars.push_back(var);
             return var;
         }
+        AstNode<EAst::MutVar> MakeVarNode(shared_ptr<MutableValue> var) {
+            auto vn{AstTree::make_node<EAst::MutVar>()};
+            vn->varObj = var;
+            vn->ty = var->type;
+            return vn;
+        }
+
+        shared_ptr<Type> ParseDeclarationSpec() {
+            switch (exchange_key()) {
+            case KeyDef::Int:
+                lex().NextToken();
+                return type_def::IntTy;
+            default:
+                Debugger::interface()->add_msg({
+                    .level = debMsg::Fail,
+                    .src_info = cur().addr,
+                    .msg = "type not support yet",
+                });
+                return nullptr;
+            }
+        }
+        shared_ptr<Type> ParseDeclarator(shared_ptr<Type> baseTy, tag_t& name) {
+            auto ty = baseTy;
+            while (cur().kind == ETokenKind('*')) {
+                ty = std::make_shared<TypeImpl<TypeKind::Pointer>>(ty);
+                lex().NextToken();
+            }
+            if (cur().kind != ETokenKind::Tag) {
+                Debugger::interface()->add_msg({
+                    .level = debMsg::Error,
+                    .src_info = cur().addr,
+                    .msg = "expected a variable name"
+                });
+            }
+            name = cur().get<tag_t >();
+            lex().NextToken();
+            return ParseTypeSuffix(ty);
+        }
+        shared_ptr<Type> ParseTypeSuffix(const shared_ptr<Type>& baseTy) {
+            if (cur().kind == ETokenKind('(')) {
+                lex().NextToken();
+                auto funcTy = make_shared<TypeImpl<TypeKind::Function>>(baseTy);
+                if (cur().kind!=ETokenKind(')')) {
+//                    auto ty = ;
+                    tag_t nm;
+                    auto ty{
+                        ParseDeclarator(ParseDeclarationSpec(), nm)
+                    };
+                    auto p{
+                        make_shared<FuncParam>(ty, nm)
+                    };
+                    funcTy->args.push_back(p);
+                    while (cur().kind != ETokenKind(')')) {
+                        ExpectToken(ETokenKind(','));
+
+                        tag_t nm_;
+                        auto ty_{
+                                ParseDeclarator(ParseDeclarationSpec(), nm_)
+                        };
+                        auto p_{
+                                make_shared<FuncParam>(ty_, nm_)
+                        };
+                        funcTy->args.push_back(p_);
+                    }
+
+                }
+                ExpectToken(ETokenKind(')'));
+                return funcTy;
+            }
+            return baseTy;
+        }
+
         AstNode<EAst::Pragma> ParsePragma () {
             auto pragma = AstTree::make_node<EAst::Pragma>();
             while (cur().kind != ETokenKind::Eof) {
@@ -85,22 +158,22 @@ export namespace hel {
         AstNode<EAst::FuncDef> ParseFunction() {
             auto fnc = AstTree::make_node<EAst::FuncDef>();
             local = &fnc->local_def;
-            fnc->nm = cur().get<tag_t>();
-            ExpectToken(ETokenKind::Tag);
-            ExpectToken(ETokenKind('('));
-            if (cur().kind!=ETokenKind(')')) {
-                auto tok = cur();
-                ParsePriExpr();
-                fnc->args.push_back(FindLocalVar(tok.get<tag_t>()));
-                while (cur().kind == ETokenKind(',')) {
-                    lex().NextToken();
 
-                    tok = cur();
-                    ParsePriExpr();
-                    fnc->args.push_back(FindLocalVar(tok.get<tag_t>()));
-                }
-            }
-            ExpectToken(ETokenKind(')'));
+            auto ty = ParseDeclarationSpec();
+            tag_t name;
+            ty = ParseDeclarator(ty, name);
+
+            fnc->nm = name;
+            fnc->ty = ty;
+
+            auto funcTy = std::dynamic_pointer_cast<TypeImpl<TypeKind::Function>>(ty);
+            std::for_each(
+            funcTy->args.rbegin(),
+            funcTy->args.rend(),
+                [&](auto& i) {
+                fnc->args.push_front(MakeLocalVar(i->name, i->type));
+            });
+
             ExpectToken(ETokenKind('{'));
             while (cur().kind != ETokenKind('}')) {
                 fnc->stmts.push_back(ParseStmt());
@@ -120,6 +193,31 @@ export namespace hel {
                     return ParseWhileStmt();
                 case KeyDef::Return:
                     return ParseRetStmt();
+                case KeyDef::Int: {
+                    auto decl{AstTree::make_node<EAst::Decl>()};
+                    auto ty{ParseDeclarationSpec()};
+                    int i = 0;
+                    while (cur().kind != ETokenKind(';')) {
+                        if (i > 0) {
+                            ExpectToken(ETokenKind(','));
+                        }
+                        tag_t nm;
+                        ty = ParseDeclarator(ty, nm);
+                        auto var{MakeLocalVar(nm, ty)};
+                        i++;
+                        if (cur().kind != ETokenKind('=')) {
+                            continue;
+                        }
+                        ExpectToken(ETokenKind('='));
+                        auto ass = AstTree::make_node<EAst::MidExpr>();
+                        ass->opt = Ast<EAst::MidExpr>::MidOperator::Ass;
+                        ass->lhs = MakeVarNode(var);
+                        ass->rhs = ParseExpr();
+                        decl->ass.push_back(ass);
+                    }
+                    ExpectToken(ETokenKind(';'));
+                    return decl;
+                }
                 default:
                     if (cur().kind == ETokenKind('{')) {
                         return ParseBlock();
@@ -142,6 +240,17 @@ export namespace hel {
             if (cur().kind == ETokenKind::Num) {
                 return ParseConNumb();
             } else if (cur().kind == ETokenKind('(')) {
+                if (lex().PeekToken(1).kind == ETokenKind('{')) {
+                    ExpectToken(ETokenKind('('));
+                    ExpectToken(ETokenKind('{'));
+                    auto se{AstTree::make_node<EAst::StmtExpr>()};
+                    while (cur().kind != ETokenKind('}')) {
+                        se->stmts.push_back(ParseStmt());
+                    }
+                    lex().NextToken();
+                    ExpectToken(ETokenKind(')'));
+                    return se;
+                }
                 ExpectToken(ETokenKind('('));
                 auto pri_expr = ParseExpr();
                 ExpectToken(ETokenKind(')'));
@@ -164,7 +273,16 @@ export namespace hel {
                 }
                 auto var_expr = AstTree::make_node<EAst::MutVar>();
                 auto nm = cur().get<tag_t>();
-                var_expr->varObj = FindLocalVar(nm);
+                if (auto obj{FindLocalVar(nm)}; obj) {
+                    var_expr->varObj = obj;
+                } else {
+//                    var_expr->varObj = MakeLocalVar(nm, type_def::IntTy);
+                    Debugger::interface()->add_msg({
+                        .level = debMsg::Error,
+                        .src_info = cur().addr,
+                        .msg = std::format("can't find variable '{}'", nm)
+                    });
+                }
                 ExpectToken(ETokenKind::Tag);
                 return var_expr;
             }

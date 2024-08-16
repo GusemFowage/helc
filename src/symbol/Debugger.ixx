@@ -4,6 +4,7 @@ import <queue>;
 import <iostream>;
 import <memory>;
 import <format>;
+import <filesystem>;
 
 import defint;
 import lexer.source;
@@ -52,31 +53,38 @@ export namespace hel {
     class Debugger {
         std::queue <debMsg> msgs;
         void use();
+        string file;
     public:
         Debugger();
+        explicit Debugger(const std::filesystem::path&);
         ~Debugger();
         void add_msg(const debMsg &msg) {
             msgs.push(msg);
         }
 
-        void put_all() {
+        size_t put_all() {
+            size_t err{};
             while (!msgs.empty()) {
                 auto &front = msgs.front();
+                if (front.level >= debMsg::Error) {
+                    err++;
+                }
                 std::println(std::cout,
                 "{}\033[32m[file: {}][line: {}][column: {}]\033[0m",
                 front.level,
-                front.src_info.file,
+                file,
                 front.src_info.line,
                 front.src_info.column
                 );
                 std::println(std::cout, "{}", front.src_info.code);
                 std::println(std::cout, "{1:~>{0}} {2}",
-                front.src_info.column,
+                front.src_info.column+1,
                 '^',
                 front.msg
                 );
                 msgs.pop();
             }
+            return err;
         }
 
         static Debugger *interface();
@@ -97,5 +105,10 @@ namespace hel {
     Debugger::~Debugger()  {
         if (!msgs.empty()) put_all();
         singleton.store(nullptr);
+    }
+
+    Debugger::Debugger(const std::filesystem::path & p)
+        : file(p.string()){
+        use();
     }
 }

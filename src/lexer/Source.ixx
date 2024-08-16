@@ -20,7 +20,6 @@ export namespace hel {
         struct Info {
             size_t line, column;
             string_view code;
-            string file;
         };
         NODISCARD virtual bool had_end() const = 0;
         virtual char_t NextChar() = 0;
@@ -66,7 +65,6 @@ export namespace hel {
         std::filesystem::path SrcPath;
     public:
         explicit SourceImpl(const decltype(SrcPath)& src) : SrcPath(src) {
-            mCurLineInfo.file = SrcPath.string<char_t>();
             std::ifstream fin;
             fin.open(SrcPath);
             string buff;

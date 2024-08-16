@@ -42,8 +42,8 @@ export namespace hel {
             // entry a function
             genln("\t.text");
             FuncNm = fnc.nm;
-            genln("\t.global {}", FuncNm);
-            genln("{}:", FuncNm);
+            genln("\t.global _{}", FuncNm);
+            genln("_{}:", FuncNm);
             unsigned stack_size = 0;
             for (auto& v : fnc.local_def.localVars) {
                 stack_size += 8;
@@ -164,11 +164,21 @@ export namespace hel {
             for (auto i{cll.args.size()}; i > 0; i--) {
                 Pop(Reg64[i-1]);
             }
-            genln("\tcall {}", cll.nm);
+            genln("\tcall _{}", cll.nm);
+        }
+        void visit(Ast<EAst::StmtExpr> & se) override {
+            for (auto& i : se.stmts) {
+                i->accept(this);
+            }
         }
         void visit(Ast<EAst::Block> & blk) override {
             for (auto& i : blk.stmts) {
                 i->accept(this);
+            }
+        }
+        void visit(Ast<EAst::Decl> & dcl) override {
+            for (auto& n : dcl.ass) {
+                n->accept(this);
             }
         }
         void visit(Ast<EAst::ExprStmt> & es) override {

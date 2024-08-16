@@ -24,19 +24,20 @@ export namespace hel {
         Pragma,
         Expr, Stmt,
         FuncDef,
-        Block,
+        Block, Decl,
         ExprStmt,
         If_Else, For,
         While, Do_While,
         ConNumb, MutVar,
         PriExpr, MidExpr,
-        Call, Ret,
+        Call, Ret, StmtExpr
     };
 
     template<EAst eA = EAst::Root>
     struct Ast {
         friend class AstTree;
         friend class AstVisitor;
+        shared_ptr<Type> ty;
         virtual void accept(AstVisitor *vis) = 0;
     public:
         virtual ~Ast() = default;
@@ -137,6 +138,18 @@ export namespace hel {
         string_view nm;
         std::list<AstNode<EAst::Expr>> args;
     };
+    template<>
+    struct Ast<EAst::StmtExpr> : public Ast<EAst::PriExpr> {
+        void accept(hel::AstVisitor *vis) override;
+        std::list<AstNode<EAst::Stmt>> stmts;
+    };
+
+    template<>
+    struct Ast<EAst::Decl> : public Ast<EAst::Stmt> {
+    public:
+        std::list<AstNode<EAst::MidExpr>> ass;
+        void accept(hel::AstVisitor *vis) override;
+    };
 
     struct AstTree {
         friend class Parser;
@@ -145,7 +158,7 @@ export namespace hel {
             root->accept(vis);
         }
         template<EAst eAst>
-        static AstNode<eAst> make_node() {
+        static shared_ptr <Ast<eAst>> make_node() {
             return std::make_shared<Ast<eAst>>();
         }
     private:
@@ -154,6 +167,7 @@ export namespace hel {
     };
 
     struct AstVisitor {
+        virtual ~AstVisitor() = default;
 //        virtual void visit(AstNode<EAst::Root>&) = 0;
         virtual void visit(Ast<EAst::Pragma>&) = 0;
         virtual void visit(Ast<EAst::FuncDef>&) = 0;
@@ -162,8 +176,10 @@ export namespace hel {
         virtual void visit(Ast<EAst::MutVar>&) = 0;
         virtual void visit(Ast<EAst::MidExpr>&) = 0;
         virtual void visit(Ast<EAst::Call>&) = 0;
+        virtual void visit(Ast<EAst::StmtExpr>&) = 0;
 
         virtual void visit(Ast<EAst::Block>&) = 0;
+        virtual void visit(Ast<EAst::Decl>&) = 0;
         virtual void visit(Ast<EAst::ExprStmt>&) = 0;
         virtual void visit(Ast<EAst::If_Else>&) = 0;
         virtual void visit(Ast<EAst::For>&) = 0;
@@ -193,7 +209,13 @@ export namespace hel {
     void Ast<EAst::Call>::accept(AstVisitor *vis) {
         vis->visit(*this);
     }
+    void Ast<EAst::StmtExpr>::accept(AstVisitor *vis) {
+        vis->visit(*this);
+    }
     void Ast<EAst::Block>::accept(AstVisitor *vis) {
+        vis->visit(*this);
+    }
+    void Ast<EAst::Decl>::accept(hel::AstVisitor *vis) {
         vis->visit(*this);
     }
     void Ast<EAst::ExprStmt>::accept(AstVisitor *vis) {
